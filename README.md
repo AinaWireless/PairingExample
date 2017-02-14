@@ -1,4 +1,4 @@
-# PairingExample
+# AINA WIRELESS  -  Pairing Example
 
 Example of pairing AINA PTT Voice Responder with Android phone by using NFC or QR-code.
 
