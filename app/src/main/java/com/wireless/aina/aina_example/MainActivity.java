@@ -914,8 +914,32 @@ public class MainActivity extends AppCompatActivity
             String intentAction;
 
             /* Connected to BLE */
-            //if (newState == BluetoothProfile.STATE_CONNECTED)
-            //{
+            if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+            {
+                if (newState == BluetoothProfile.STATE_CONNECTED)
+                {
+                    intentAction = ACTION_GATT_CONNECTED;
+
+                    broadcastUpdate(intentAction);
+
+                    /* Start BLE's Service discovery process */
+                    gatt.discoverServices();
+
+                }
+                /* BLE was disconnected... */
+                else if (newState == BluetoothProfile.STATE_DISCONNECTED)
+                {
+                    intentAction = ACTION_GATT_DISCONNECTED;
+
+                    broadcastUpdate(intentAction);
+
+                    failedConnect = true;
+                    TextUpdateHandler.post(updateRunnable);
+                }
+
+            }
+            else
+            {
                 intentAction = ACTION_GATT_CONNECTED;
 
                 broadcastUpdate(intentAction);
@@ -923,20 +947,7 @@ public class MainActivity extends AppCompatActivity
                 /* Start BLE's Service discovery process */
                 gatt.discoverServices();
 
-            //}
-            /* BLE was disconnected... */
-            /*
-            else if (newState == BluetoothProfile.STATE_DISCONNECTED)
-            {
-                intentAction = ACTION_GATT_DISCONNECTED;
-
-                broadcastUpdate(intentAction);
-
-                failedConnect = true;
-                TextUpdateHandler.post(updateRunnable);
             }
-            */
-
         }
 
 
