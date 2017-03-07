@@ -820,7 +820,7 @@ public class MainActivity extends AppCompatActivity
             tryBLE = true;
             TextUpdateHandler.post(updateRunnable);
 
-            read_ble_handler.postDelayed(runnable, 500);
+            read_ble_handler.postDelayed(runnable, 1000);
 
         }
 
@@ -914,8 +914,8 @@ public class MainActivity extends AppCompatActivity
             String intentAction;
 
             /* Connected to BLE */
-            if (newState == BluetoothProfile.STATE_CONNECTED)
-            {
+            //if (newState == BluetoothProfile.STATE_CONNECTED)
+            //{
                 intentAction = ACTION_GATT_CONNECTED;
 
                 broadcastUpdate(intentAction);
@@ -923,8 +923,9 @@ public class MainActivity extends AppCompatActivity
                 /* Start BLE's Service discovery process */
                 gatt.discoverServices();
 
-            }
+            //}
             /* BLE was disconnected... */
+            /*
             else if (newState == BluetoothProfile.STATE_DISCONNECTED)
             {
                 intentAction = ACTION_GATT_DISCONNECTED;
@@ -934,6 +935,7 @@ public class MainActivity extends AppCompatActivity
                 failedConnect = true;
                 TextUpdateHandler.post(updateRunnable);
             }
+            */
 
         }
 
@@ -974,14 +976,22 @@ public class MainActivity extends AppCompatActivity
                     ble_sw_char += Integer.toHexString((characteristic.getValue()[0] & 0xff));
                     ble_sw_char += Integer.toHexString((characteristic.getValue()[1] & 0xff));
                     ble_sw_char += Integer.toHexString((characteristic.getValue()[2] & 0xff)).toUpperCase();
-                    ble_sw_char = ble_sw_char.substring(0, ble_sw_char.length()-1);
+
+                    if(ble_sw_char.substring(ble_sw_char.length() - 1, ble_sw_char.length()).equals("0"))
+                    {
+                        ble_sw_char = ble_sw_char.substring(0, ble_sw_char.length()-1);
+                    }
 
                     /* Build BLE firmware string*/
                     ble_sw_char += "   -   BLE Ver: ";
                     ble_sw_char += Integer.toHexString((characteristic.getValue()[3] & 0xff));
                     ble_sw_char += Integer.toHexString((characteristic.getValue()[4] & 0xff));
                     ble_sw_char += Integer.toHexString((characteristic.getValue()[5] & 0xff)).toUpperCase();
-                    ble_sw_char = ble_sw_char.substring(0, ble_sw_char.length()-1);
+
+                    if(ble_sw_char.substring(ble_sw_char.length() - 1, ble_sw_char.length()).equals("0"))
+                    {
+                        ble_sw_char = ble_sw_char.substring(0, ble_sw_char.length() - 1);
+                    }
 
                     ReadVersions = false;
                     UpdateVersions = true;
