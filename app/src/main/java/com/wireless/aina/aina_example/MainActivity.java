@@ -25,6 +25,9 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import android.app.Activity;
@@ -33,9 +36,12 @@ import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothHeadset;
 import android.bluetooth.BluetoothProfile;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
@@ -49,7 +55,9 @@ import android.os.Handler;
 import android.content.Intent;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.support.annotation.MainThread;
 import android.support.annotation.NonNull;
+import android.support.annotation.UiThread;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.FileProvider;
 import android.support.v7.app.AppCompatActivity;
@@ -70,6 +78,7 @@ import android.nfc.NfcAdapter;
 import android.nfc.Tag;
 import android.nfc.tech.Ndef;
 
+import com.google.android.gms.games.quest.Quests;
 import com.google.android.gms.vision.Frame;
 import com.google.android.gms.vision.barcode.Barcode;
 import com.google.android.gms.vision.barcode.BarcodeDetector;
@@ -103,6 +112,8 @@ public class MainActivity extends AppCompatActivity
     private static final UUID     KEYS       = UUID.fromString("127FBEEF-CB21-11E5-93D0-0002A5D5C51B"); /* Key press' */
     private static final UUID     SW_VERS    = UUID.fromString("127FC0FF-CB21-11E5-93D0-0002A5D5C51B"); /* SW Versions */
 
+    static final UUID CLIENT_CHARACTERISTIC_CONFIG = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+
 
     private static final String  TAG = "Aina_Pairing";
     private NfcAdapter          mNfcAdapter;
@@ -119,9 +130,11 @@ public class MainActivity extends AppCompatActivity
     private String              ble_sw_char;
     private BluetoothGatt       mBluetoothGatt;
     private BluetoothDevice     mmDevice_classic;
+    private BluetoothDevice     mmDevice_ble;
     private BluetoothSocket     mmSocket;
     private BluetoothA2dp       mBluetoothA2DP;
     private BluetoothHeadset    mBluetoothHeadset;
+    private boolean             ble_bonded = false;
     private boolean             classic_paired = false;
     private boolean             ble_connected = false;
     private boolean             update_ble = false;
@@ -131,10 +144,39 @@ public class MainActivity extends AppCompatActivity
     private boolean             clearAll = false;
     private boolean             ReadVersions = true;
     private boolean             UpdateVersions = false;
+    private boolean             Scanning = false;
+    private boolean             PairedOnStart = false;
+    private boolean             BTC_Connect = false;
     private final String[]      MACs = new String[2]; // 0 = BLE MAC,  1 = Classic MAC
     private final Handler       read_ble_handler = new Handler();
     private final Handler       TextUpdateHandler = new Handler();
     private final BluetoothAdapter  mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+
+
+
+    private BluetoothAdapter.LeScanCallback LeCallback = new BluetoothAdapter.LeScanCallback() {
+        @Override
+        public void onLeScan(final BluetoothDevice device, final int rssi, final byte[] scanrecord)
+        {
+            mmDevice_ble = mBluetoothAdapter.getRemoteDevice(device.getAddress().toString());
+            String temp = mmDevice_ble.getName();
+            if(temp != null) {
+                if (temp.equals(mmDevice_classic.getName())) {
+                    mAdapter.stopLeScan(LeCallback);
+
+                    IntentFilter intent = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+                    registerReceiver(mPairReceiver, intent);
+
+                    /* Connect to BLEs GATT */
+                    mBluetoothGatt = mmDevice_ble.connectGatt(getApplicationContext(), true, mGattCallback);
+
+                    MACs[0] = device.getAddress().toString();
+                    mText_bleMac.setText("BLE MAC address = " + MACs[0]);
+
+                }
+            }
+        }
+    };
 
 
     /* Read BLE characteristics */
@@ -148,35 +190,55 @@ public class MainActivity extends AppCompatActivity
             {
                 ble_connected = true;
 
-                /* Get BLE device */
-                BluetoothDevice mmDevice_ble = mAdapter.getRemoteDevice(MACs[0]);
+                if(PairedOnStart == false) {
 
-                //final Set<BluetoothDevice> bonded = mAdapter.getBondedDevices();
+                    /* Get BLE device */
+                    mmDevice_ble = mAdapter.getRemoteDevice(MACs[0]);
 
-                /* Connect to BLEs GATT */
-                mBluetoothGatt = mmDevice_ble.connectGatt(getApplicationContext(), false, mGattCallback);
+                    IntentFilter intent = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+                    registerReceiver(mPairReceiver, intent);
+
+                    /* Connect to BLEs GATT */
+                    mBluetoothGatt = mmDevice_ble.connectGatt(getApplicationContext(), true, mGattCallback);
+                }
+                else
+                {
+                    if(Scanning == false) {
+                        mAdapter.startLeScan(LeCallback);
+                        Scanning = true;
+                    }
+                }
             }
             else
             {
+                Set<BluetoothDevice> bonded = mAdapter.getBondedDevices();
+                if(bonded.size() > 1)
+                {
 
-                BluetoothGattService mService = mBluetoothGatt.getService(AINA_SERV);
+                    BluetoothGattService mService = mBluetoothGatt.getService(AINA_SERV);
 
-                if (!mButton_scan.isEnabled()) mButton_scan.setEnabled(true);
+                    if (!mButton_scan.isEnabled()) mButton_scan.setEnabled(true);
 
-                if (mService != null) {
-                    if (!ReadVersions) {
-                        BluetoothGattCharacteristic mChar = mService.getCharacteristic(KEYS);
+                    if (mService != null) {
+                        if (!ReadVersions) {
+                            BluetoothGattCharacteristic mChar = mService.getCharacteristic(KEYS);
 
-                        if (mChar != null) {
-                            mBluetoothGatt.readCharacteristic(mChar);
-                        }
-                    } else {
-                        BluetoothGattCharacteristic mChar = mService.getCharacteristic(SW_VERS);
+                            if (mChar != null) {
+                                mBluetoothGatt.readCharacteristic(mChar);
+                            }
+                        } else {
+                            BluetoothGattCharacteristic mChar = mService.getCharacteristic(SW_VERS);
 
-                        if (mChar != null) {
-                            mBluetoothGatt.readCharacteristic(mChar);
+                            if (mChar != null) {
+                                mBluetoothGatt.readCharacteristic(mChar);
+                            }
                         }
                     }
+
+                }
+                else
+                {
+                    read_ble_handler.postDelayed(runnable, 150);
                 }
             }
         }
@@ -189,6 +251,19 @@ public class MainActivity extends AppCompatActivity
     {
         public void run()
         {
+
+            if(BTC_Connect == true)
+            {
+                BTC_Connect = false;
+
+                classic_paired = true;
+                tryBLE = true;
+
+                TextUpdateHandler.post(updateRunnable);
+
+                read_ble_handler.postDelayed(runnable, 1000);
+            }
+
             if(classic_paired)
             {
                 if(!mText_classicMac.getText().toString().contains("Paired"))
@@ -197,11 +272,19 @@ public class MainActivity extends AppCompatActivity
                 }
             }
 
+            if(ble_bonded)
+            {
+                if(!mText_bleMac.getText().toString().contains("Bonded"))
+                {
+                    mText_bleMac.append(" (Bonded)");
+                }
+            }
+
             if(update_ble)
             {
                 if((ble_char & 0xff) < 16)
                     mText_charVal.setText("GATT Characteristic value: 0x0" + Integer.toHexString(ble_char & 0xff));
-                else
+               else
                     mText_charVal.setText("GATT Characteristic value: 0x" + Integer.toHexString(ble_char & 0xff));
 
                 mText_keysString.setText("");
@@ -218,9 +301,18 @@ public class MainActivity extends AppCompatActivity
 
             if(tryBTC)
             {
+                if(!MACs[1].equals("")) mText_classicMac.setText("BTC MAC address = " + MACs[1]);
+                if(!MACs[0].equals("")) mText_bleMac.setText("BLE MAC address = " + MACs[0]);
+
+                scanHeader.setText("NFC Tag read successfully...");
+
                 mText_charVal.setText("Trying to connect with Classic BT...");
                 mText_keysString.setText("");
                 tryBTC = false;
+
+                BTC_Connect = true;
+                TextUpdateHandler.post(updateRunnable);
+
             }
 
             if(tryBLE)
@@ -274,6 +366,7 @@ public class MainActivity extends AppCompatActivity
     {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        boolean found = false;
 
         mText_classicMac  = (TextView) findViewById(R.id.textView_classicMac);
         mText_bleMac      = (TextView) findViewById(R.id.textView_bleMac);
@@ -354,6 +447,44 @@ public class MainActivity extends AppCompatActivity
         }
 
         scanHeader.setText("QR-Code or NFC data not yet read...");
+
+        Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
+
+        for(BluetoothDevice bt : pairedDevices)
+        {
+            if(bt.getAddress().toString().contains("38:B8:EB"))
+            {
+                MACs[1] = bt.getAddress().toString();
+                mText_classicMac.setText("BTC MAC address = " + MACs[1]);
+
+                mmDevice_classic = mBluetoothAdapter.getRemoteDevice(bt.getAddress().toString());
+
+                found = true;
+
+                PairedOnStart = true;
+            }
+        }
+
+        if(found == false)
+        {
+            failedConnect = false;
+
+            Runnable r = new ConnectThread(MACs[1]);
+            new Thread(r).start();
+            BTC_Connect = false;
+        }
+        else
+        {
+            BTC_Connect = false;
+
+            classic_paired = true;
+            tryBLE = true;
+
+            TextUpdateHandler.post(updateRunnable);
+
+            read_ble_handler.postDelayed(runnable, 1000);
+        }
+
 
 
     }
@@ -564,19 +695,24 @@ public class MainActivity extends AppCompatActivity
         {
             if (result != null)
             {
-                if(!MACs[1].equals("")) mText_classicMac.setText("BTC MAC address = " + MACs[1]);
-                if(!MACs[0].equals("")) mText_bleMac.setText("BLE MAC address = " + MACs[0]);
-
-                scanHeader.setText("NFC Tag read successfully...");
+                if(MACs[0].substring(0,5).equals("38:B8"))
+                {
+                    String temp = MACs[0];
+                    MACs[0] = MACs[1];
+                    MACs[1] = temp;
+                }
             }
 
             tryBTC = true;
-            TextUpdateHandler.post(updateRunnable);
-
             mButton_scan.setEnabled(false);
 
-            Runnable r = new ConnectThread(MACs[1]);
-            new Thread(r).start();
+            updateRunnable.run();
+
+            tryBLE = false;
+            tryBTC = false;
+
+            failedConnect = false;
+
         }
 
     }
@@ -752,28 +888,47 @@ public class MainActivity extends AppCompatActivity
 
 
     /* Connect class */
-    public class ConnectThread extends Thread
+    private class ConnectThread extends Thread
     {
         /* Connect to bluetooth classic */
-        public ConnectThread(String MAC)
+        private ConnectThread(String MAC)
         {
-            BluetoothDevice device;
             BluetoothSocket tmp = null;
 
-            device = mAdapter.getRemoteDevice(MAC);
-            mmDevice_classic = device;
+            mmDevice_classic = mAdapter.getRemoteDevice(MAC);
 
             try
             {
-                /* Try to connect to BT classic according to our UUID */
-                tmp = device.createRfcommSocketToServiceRecord(MY_UUID);
-            }
-            catch (IOException e)
-            {
-                Log.e(TAG, "Socket's create() method failed", e);
-            }
+                mAdapter.cancelDiscovery();
 
-            mmSocket = tmp;
+                /* Try to connect to BT classic according to our UUID */
+                mmSocket = mmDevice_classic.createRfcommSocketToServiceRecord(MY_UUID);
+
+                /* Connect to Classic BTs socket */
+                mmSocket.connect();
+            }
+            catch (IOException e) {
+                Log.e(TAG, "Socket's create() method failed", e);
+
+                try {
+                    mmSocket = (BluetoothSocket) mmDevice_classic.getClass().getMethod("createRfcommSocket", new Class[]{int.class}).invoke(mmDevice_classic, 1);
+                    mmSocket.connect();
+                } catch (Exception ex) {
+                    try {
+                        mmSocket.close();
+                    } catch (IOException closeException) {
+                        Log.e(TAG, "Could not close the client socket", closeException);
+                    }
+
+                    tryBLE = false;
+                    tryBTC = false;
+
+                    failedConnect = true;
+                    TextUpdateHandler.post(updateRunnable);
+
+                    return;
+                }
+            }
         }
 
 
@@ -782,50 +937,25 @@ public class MainActivity extends AppCompatActivity
         public void run()
         {
             /* In example we don't start discovery, but any case if it is discovering, stop it */
-            mAdapter.cancelDiscovery();
+            if(failedConnect != true) {
+                /* Create profile listeners for A2DP and Headset profiles */
+                mBluetoothAdapter.getProfileProxy(getApplicationContext(), mProfileListener, BluetoothProfile.A2DP);
+                mBluetoothAdapter.getProfileProxy(getApplicationContext(), mProfileListener, BluetoothProfile.HEADSET);
 
-            /* Create profile listeners for A2DP and Headset profiles */
-            mBluetoothAdapter.getProfileProxy(getApplicationContext(), mProfileListener, BluetoothProfile.A2DP);
-            mBluetoothAdapter.getProfileProxy(getApplicationContext(), mProfileListener, BluetoothProfile.HEADSET);
 
-            try
-            {
-                if(!mmSocket.isConnected())
-                {
-                    mmDevice_classic.getName();
+                /* Paired with Classic BT, update UI */
+                classic_paired = true;
+                tryBLE = true;
 
-                    /* Connect to Classic BTs socket */
-                    mmSocket.connect();
-                }
-            }
-            catch (IOException connectException)
-            {
-                try
-                {
-                    mmSocket.close();
-                }
-                catch (IOException closeException)
-                {
-                    Log.e(TAG, "Could not close the client socket", closeException);
-                }
-
-                failedConnect = true;
                 TextUpdateHandler.post(updateRunnable);
 
-                return;
+                read_ble_handler.postDelayed(runnable, 5000);
             }
-
-            /* Paired with Classic BT, update UI */
-            classic_paired = true;
-            tryBLE = true;
-            TextUpdateHandler.post(updateRunnable);
-
-            read_ble_handler.postDelayed(runnable, 1000);
-
         }
 
 
     }
+
 
 
     /* Profile listeners for A2DP and Headset profiles */
@@ -918,6 +1048,8 @@ public class MainActivity extends AppCompatActivity
             {
                 if (newState == BluetoothProfile.STATE_CONNECTED)
                 {
+                    mAdapter.stopLeScan(LeCallback);
+
                     intentAction = ACTION_GATT_CONNECTED;
 
                     broadcastUpdate(intentAction);
@@ -929,12 +1061,18 @@ public class MainActivity extends AppCompatActivity
                 /* BLE was disconnected... */
                 else if (newState == BluetoothProfile.STATE_DISCONNECTED)
                 {
-                    intentAction = ACTION_GATT_DISCONNECTED;
+                    if(mmDevice_ble.getBondState() != BluetoothDevice.BOND_BONDED) {
+                        intentAction = ACTION_GATT_DISCONNECTED;
 
-                    broadcastUpdate(intentAction);
+                        broadcastUpdate(intentAction);
 
-                    failedConnect = true;
-                    TextUpdateHandler.post(updateRunnable);
+                        tryBLE = false;
+                        tryBTC = false;
+
+                        failedConnect = true;
+                        TextUpdateHandler.post(updateRunnable);
+                    }
+
                 }
 
             }
@@ -952,20 +1090,29 @@ public class MainActivity extends AppCompatActivity
 
 
 
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic)
+        {
+            broadcastUpdate(characteristic);
+
+            update_ble = true;
+            ble_char = ((int) characteristic.getValue()[0]);
+            TextUpdateHandler.post(updateRunnable);
+
+        }
+
+
+
         /* BLE's Services found */
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status)
         {
+            boolean ret;
             if (status == BluetoothGatt.GATT_SUCCESS)
             {
                 broadcastUpdate(ACTION_GATT_SERVICES_DISCOVERED);
             }
 
-            //   - After bonding is supported by AINA PTT Voice responder, use following API call to create bonding with BLE
-            //mmDevice_ble.createBond();
-
-            /* Start BLE's characteristics reading thread  */
-            read_ble_handler.postDelayed(runnable, 200);
         }
 
 
@@ -1006,6 +1153,17 @@ public class MainActivity extends AppCompatActivity
 
                     ReadVersions = false;
                     UpdateVersions = true;
+
+                    mBluetoothGatt.setCharacteristicNotification(mBluetoothGatt.getService(AINA_SERV).getCharacteristic(KEYS), true);
+
+                    BluetoothGattDescriptor descriptor = mBluetoothGatt.getService(AINA_SERV).getCharacteristic(KEYS).getDescriptor(CLIENT_CHARACTERISTIC_CONFIG);
+                    descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                    mBluetoothGatt.writeDescriptor(descriptor);
+
+                    update_ble = true;
+                    ble_char = ((int) 0x00);
+                    TextUpdateHandler.post(updateRunnable);
+
                 }
                 else
                 {
@@ -1015,11 +1173,12 @@ public class MainActivity extends AppCompatActivity
                     update_ble = true;
                 }
 
+
                 /* Update UI */
                 TextUpdateHandler.post(updateRunnable);
 
                 /* Start characteristic read again... */
-                read_ble_handler.postDelayed(runnable, 100);
+                //read_ble_handler.postDelayed(runnable, 200);
 
             }
         }
@@ -1055,17 +1214,31 @@ public class MainActivity extends AppCompatActivity
         }
     };
 
-    public void openBrowser(View view)
-    {
-        String url = view.getTag().toString();
 
-        Intent intent = new Intent();
-        intent.setAction(Intent.ACTION_VIEW);
-        intent.addCategory(Intent.CATEGORY_BROWSABLE);
 
-        intent.setData(Uri.parse(url));
+    private final BroadcastReceiver mPairReceiver = new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
 
-        startActivity(intent);
-    }
+            if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
+                final int state        = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+                final int prevState    = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, BluetoothDevice.ERROR);
+
+                if (state == BluetoothDevice.BOND_BONDED && prevState == BluetoothDevice.BOND_BONDING) {
+                    Log.e(TAG, "Paired");
+                    if(mmDevice_ble.getBondState() == BluetoothDevice.BOND_BONDED)
+                    {
+                        ble_bonded = true;
+
+                        mBluetoothGatt.readCharacteristic(mBluetoothGatt.getService(AINA_SERV).getCharacteristic(SW_VERS));
+                    }
+
+                } else if (state == BluetoothDevice.BOND_NONE && prevState == BluetoothDevice.BOND_BONDED){
+                    Log.e(TAG, "Unpaired");
+                }
+
+            }
+        }
+    };
 }
 
