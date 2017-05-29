@@ -6,5 +6,5 @@ More info: www.aina-wireless.com
 
 
 
-Copyrigth AINA WIRELESS
+Copyright 2017 AINA WIRELESS
 
