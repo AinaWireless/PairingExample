@@ -124,6 +124,7 @@ public class MainActivity extends AppCompatActivity
     private TextView            mText_keysString;
     private TextView            mText_sw_versions;
     private Button              mButton_scan;
+    private Button              mButton_rssi;
     private BluetoothAdapter    mAdapter;
     private int                 ble_char;
     private int                 mac_cnt = 0;
@@ -162,6 +163,31 @@ public class MainActivity extends AppCompatActivity
             String temp = mmDevice_ble.getName();
             if(temp != null) {
                 if (temp.equals(mmDevice_classic.getName())) {
+                    mAdapter.stopLeScan(LeCallback);
+
+                    IntentFilter intent = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+                    registerReceiver(mPairReceiver, intent);
+
+                    /* Connect to BLEs GATT */
+                    mBluetoothGatt = mmDevice_ble.connectGatt(getApplicationContext(), true, mGattCallback);
+
+                    MACs[0] = device.getAddress().toString();
+                    mText_bleMac.setText("BLE MAC address = " + MACs[0]);
+
+                }
+            }
+        }
+    };
+
+
+    private BluetoothAdapter.LeScanCallback LeCallbackRSSI = new BluetoothAdapter.LeScanCallback() {
+        @Override
+        public void onLeScan(final BluetoothDevice device, final int rssi, final byte[] scanrecord)
+        {
+            mmDevice_ble = mBluetoothAdapter.getRemoteDevice(device.getAddress().toString());
+            String temp = mmDevice_ble.getName();
+            if(temp != null) {
+                if ((temp.contains("ASB")) && (rssi > -24)) {
                     mAdapter.stopLeScan(LeCallback);
 
                     IntentFilter intent = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
@@ -374,6 +400,7 @@ public class MainActivity extends AppCompatActivity
         mText_keysString  = (TextView) findViewById(R.id.textView_keysString);
         mText_sw_versions = (TextView) findViewById(R.id.sw_versions);
         mButton_scan      = (Button)   findViewById(R.id.ScanButton);
+        mButton_rssi      = (Button)   findViewById(R.id.RSSIButton);
 
         /* Get bluetooth adapter */
         mAdapter = BluetoothAdapter.getDefaultAdapter();
@@ -403,12 +430,30 @@ public class MainActivity extends AppCompatActivity
 
         mButton_scan.setOnClickListener(new View.OnClickListener()
         {
-            @Override
+            @Overridek
             public void onClick(View view)
             {
                 ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_WRITE_PERMISSION);
             }
         });
+
+
+        mButton_rssi.setOnClickListener(new View.OnClickListener()
+        {
+            @Override
+            public void onClick(View view)
+            {
+               mButton_rssi.setEnabled(false);
+
+                if(Scanning == false) {
+                    scanHeader.setText("Scanning for devices and comparing rssi...");
+
+                    mAdapter.startLeScan(LeCallbackRSSI);
+                    Scanning = true;
+                }
+            }
+        });
+
 
         detector = new BarcodeDetector.Builder(getApplicationContext())
                 .setBarcodeFormats(Barcode.DATA_MATRIX | Barcode.QR_CODE)
@@ -465,16 +510,10 @@ public class MainActivity extends AppCompatActivity
             }
         }
 
-        if(found == false)
+        if(found == true)
         {
-            failedConnect = false;
+            scanHeader.setText("No need for NFC or QR...");
 
-            Runnable r = new ConnectThread(MACs[1]);
-            new Thread(r).start();
-            BTC_Connect = false;
-        }
-        else
-        {
             BTC_Connect = false;
 
             classic_paired = true;
@@ -704,15 +743,22 @@ public class MainActivity extends AppCompatActivity
             }
 
             tryBTC = true;
+
+            TextUpdateHandler.post(updateRunnable);
+
             mButton_scan.setEnabled(false);
 
+            Runnable r = new ConnectThread(MACs[1]);
+            new Thread(r).start();
+
+/*
             updateRunnable.run();
 
             tryBLE = false;
             tryBTC = false;
 
             failedConnect = false;
-
+*/
         }
 
     }
