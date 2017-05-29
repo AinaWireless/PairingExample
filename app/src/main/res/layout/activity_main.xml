@@ -10,15 +10,6 @@
     android:paddingTop="@dimen/activity_vertical_margin"
     tools:context="com.wireless.aina.aina_example.MainActivity">
 
-    <Button
-        android:id="@+id/ScanButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_centerHorizontal="true"
-        android:layout_marginBottom="10dp"
-        android:layout_marginTop="5dp"
-        android:text="@string/read_code"/>
-
     <TextView
         android:id="@+id/scan_header"
         android:layout_width="wrap_content"
@@ -82,5 +73,25 @@
         android:layout_centerHorizontal="true"
         android:tag="http://www.aina-wireless.com"
         android:onClick="openBrowser"/>
+
+    <Button
+        android:id="@+id/ScanButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/read_code"
+        android:width="130dp"
+        android:height="50dp"
+        android:layout_alignParentTop="true"
+        android:layout_marginLeft="10dp"/>
+
+    <Button
+        android:id="@+id/RSSIButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/rssi"
+        android:height="50dp"
+        android:width="130dp"
+        android:layout_alignParentTop="true"
+        android:layout_marginLeft="205dp"/>
 
 </RelativeLayout>
