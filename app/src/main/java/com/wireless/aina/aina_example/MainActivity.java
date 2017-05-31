@@ -430,7 +430,7 @@ public class MainActivity extends AppCompatActivity
 
         mButton_scan.setOnClickListener(new View.OnClickListener()
         {
-            @Overridek
+            @Override
             public void onClick(View view)
             {
                 ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_WRITE_PERMISSION);
